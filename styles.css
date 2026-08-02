@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -307,7 +311,7 @@ button.danger {
 
 .brush-mode-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
@@ -319,6 +323,23 @@ button.danger {
   border-color: var(--teal);
   background: #17312e;
   color: #c9fff7;
+}
+
+.effect-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.effect-type {
+  min-height: 42px;
+}
+
+.effect-type.active {
+  border-color: var(--accent);
+  background: #34241f;
+  color: #ffe0c7;
 }
 
 .color-grid {

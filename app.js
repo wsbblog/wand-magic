@@ -10,6 +10,13 @@
     { name: "粉", value: "#ff9ecd" }
   ];
 
+  const EFFECTS = {
+    fire: { label: "火焰", color: "#ff9344", secondary: "#ffd166" },
+    water: { label: "清水", color: "#4cc9ff", secondary: "#a6e5ff" },
+    star: { label: "星光", color: "#ffffff", secondary: "#e6b84c" },
+    lightning: { label: "闪电", color: "#8ee8ff", secondary: "#ffffff" }
+  };
+
   const video = document.getElementById("camera");
   const drawCanvas = document.getElementById("drawCanvas");
   const drawCtx = drawCanvas.getContext("2d");
@@ -18,6 +25,7 @@
   const stage = document.getElementById("stage");
   const startButton = document.getElementById("startButton");
   const calibrateButton = document.getElementById("calibrateButton");
+  const startDrawButton = document.getElementById("startDrawButton");
   const clearButton = document.getElementById("clearButton");
   const cameraStatus = document.getElementById("cameraStatus");
   const handStatus = document.getElementById("handStatus");
@@ -29,6 +37,9 @@
   const calibrationProgress = document.getElementById("calibrationProgress");
   const normalBrushButton = document.getElementById("normalBrushButton");
   const effectBrushButton = document.getElementById("effectBrushButton");
+  const eraserButton = document.getElementById("eraserButton");
+  const effectTypeGrid = document.getElementById("effectTypeGrid");
+  const effectTypeButtons = Array.from(document.querySelectorAll(".effect-type"));
   const colorGrid = document.getElementById("colorGrid");
   const brushSizeInput = document.getElementById("brushSizeInput");
 
@@ -39,15 +50,17 @@
     cameraReady: false,
     mode: "idle",
     calibrated: false,
+    armed: false,
     handGesture: "none",
     brushMode: "normal",
+    effectType: "fire",
     brushColor: "#ffffff",
     brushWidth: 6,
     drawing: false,
-    prevTip: null,
     tip: null,
-    particles: [],
-    tipHistory: []
+    smoothTip: null,
+    prevSmoothTip: null,
+    particles: []
   };
 
   function setRuntime(text) {
@@ -138,6 +151,9 @@
 
     state.mode = "calibrating";
     state.calibrated = false;
+    state.armed = false;
+    startDrawButton.disabled = true;
+    startDrawButton.textContent = "开始作画";
     calibrationTarget.hidden = false;
     calibrationLabel.textContent = "请伸出食指放入圆圈";
     calibrationProgress.style.width = "0%";
@@ -149,13 +165,18 @@
   function finishFingerCalibration() {
     state.mode = "ready";
     state.calibrated = true;
+    state.armed = false;
+    state.drawing = false;
+    state.prevSmoothTip = null;
     calibrationTarget.hidden = true;
-    calibrationProgress.style.width = "100%";
-    calibrationLabel.textContent = "食指校准完成";
+    calibrationLabel.textContent = "";
+    calibrationProgress.style.width = "0%";
     calibrateButton.disabled = false;
+    startDrawButton.disabled = false;
+    startDrawButton.textContent = "开始作画";
     handStatus.textContent = "手势识别";
     brushStatus.textContent = "手指：已校准";
-    setRuntime("可以开始作画");
+    setRuntime("已校准");
   }
 
   async function initializeHandTracking() {
@@ -171,7 +192,10 @@
           delegate: "GPU"
         },
         runningMode: "VIDEO",
-        numHands: 1
+        numHands: 2,
+        minHandDetectionConfidence: 0.4,
+        minHandPresenceConfidence: 0.4,
+        minTrackingConfidence: 0.4
       };
 
       try {
@@ -193,29 +217,6 @@
     }
   }
 
-  function classifyFist(landmarks) {
-    const wrist = landmarks[0];
-    const fingers = [
-      { tip: 8, mcp: 5 },
-      { tip: 12, mcp: 9 },
-      { tip: 16, mcp: 13 },
-      { tip: 20, mcp: 17 }
-    ];
-    let extended = 0;
-
-    for (const finger of fingers) {
-      const tip = landmarks[finger.tip];
-      const mcp = landmarks[finger.mcp];
-      const tipDistance = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-      const mcpDistance = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
-      if (tipDistance > mcpDistance * 1.08) {
-        extended += 1;
-      }
-    }
-
-    return extended <= 1;
-  }
-
   function detectHand(now) {
     if (!handLandmarker) {
       return false;
@@ -230,9 +231,10 @@
 
     if (!result.landmarks || !result.landmarks.length) {
       state.handGesture = "none";
-      state.drawing = false;
-      state.prevTip = null;
       state.tip = null;
+      state.smoothTip = null;
+      state.drawing = false;
+      state.prevSmoothTip = null;
       brushStatus.textContent = "手指：丢失";
       return false;
     }
@@ -248,14 +250,9 @@
     const tipDistance = Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y);
     const mcpDistance = Math.hypot(indexMcp.x - wrist.x, indexMcp.y - wrist.y);
     const indexExtended = tipDistance > mcpDistance * 1.08;
-    const isFist = classifyFist(landmarks);
 
-    state.handGesture = indexExtended ? "draw" : isFist ? "fist" : "none";
+    state.handGesture = indexExtended ? "draw" : "none";
     state.tip = { x: displayX, y: displayY };
-    state.tipHistory.push({ x: displayX, y: displayY });
-    if (state.tipHistory.length > 8) {
-      state.tipHistory.shift();
-    }
 
     if (state.mode === "calibrating" && indexExtended) {
       const centerDistance = Math.hypot(indexTip.x - 0.5, indexTip.y - 0.5);
@@ -264,14 +261,7 @@
       }
     }
 
-    if (state.handGesture === "draw") {
-      brushStatus.textContent = "手指：作画中";
-    } else if (state.handGesture === "fist") {
-      brushStatus.textContent = "手指：调整粗细";
-    } else {
-      brushStatus.textContent = "手指：已识别";
-    }
-
+    brushStatus.textContent = indexExtended ? "手指：已识别" : "手指：已识别";
     return true;
   }
 
@@ -296,8 +286,8 @@
       rotation: Math.random() * Math.PI * 2
     });
 
-    if (state.particles.length > 500) {
-      state.particles.splice(0, state.particles.length - 500);
+    if (state.particles.length > 600) {
+      state.particles.splice(0, state.particles.length - 600);
     }
   }
 
@@ -305,36 +295,81 @@
     return min + Math.random() * (max - min);
   }
 
-  function spawnEffectParticles(tip, dt) {
-    const count = Math.max(1, Math.round(dt * 90));
-    const palette = [state.brushColor, "#ffffff", "#e6b84c", "#4cc9ff", "#ff9ecd"];
+  function spawnEffectParticles(tip, dt, effectType) {
+    const effect = EFFECTS[effectType];
+    let count = Math.max(1, Math.round(dt * 80));
 
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = randomBetween(15, 90);
-      addParticle(
-        tip.x + randomBetween(-6, 6),
-        tip.y + randomBetween(-6, 6),
-        Math.cos(angle) * speed,
-        Math.sin(angle) * speed,
-        randomBetween(0.4, 1.1),
-        randomBetween(2, 7),
-        palette[Math.floor(Math.random() * palette.length)],
-        Math.random() > 0.5 ? "spark" : "orb"
-      );
+      const speed = randomBetween(20, 110);
+
+      if (effectType === "fire") {
+        addParticle(
+          tip.x + randomBetween(-8, 8),
+          tip.y + randomBetween(-8, 8),
+          randomBetween(-35, 35),
+          randomBetween(-150, -40),
+          randomBetween(0.5, 1.3),
+          randomBetween(3, 10),
+          Math.random() > 0.5 ? effect.color : effect.secondary,
+          "fire"
+        );
+      } else if (effectType === "water") {
+        addParticle(
+          tip.x + randomBetween(-8, 8),
+          tip.y + randomBetween(-8, 8),
+          randomBetween(-45, 45),
+          randomBetween(80, 220),
+          randomBetween(0.6, 1.4),
+          randomBetween(2, 6),
+          Math.random() > 0.5 ? effect.color : effect.secondary,
+          "water"
+        );
+      } else if (effectType === "lightning") {
+        addParticle(
+          tip.x,
+          tip.y,
+          Math.cos(angle) * randomBetween(180, 420),
+          Math.sin(angle) * randomBetween(180, 420),
+          randomBetween(0.3, 0.7),
+          randomBetween(2, 5),
+          Math.random() > 0.5 ? effect.color : effect.secondary,
+          "spark"
+        );
+      } else {
+        addParticle(
+          tip.x,
+          tip.y,
+          Math.cos(angle) * speed,
+          Math.sin(angle) * speed,
+          randomBetween(0.5, 1.2),
+          randomBetween(2, 6),
+          Math.random() > 0.5 ? effect.color : effect.secondary,
+          "spark"
+        );
+      }
     }
   }
 
   function drawStroke(from, to) {
     drawCtx.save();
-    drawCtx.strokeStyle = state.brushColor;
-    drawCtx.lineWidth = state.brushWidth;
     drawCtx.lineCap = "round";
     drawCtx.lineJoin = "round";
 
-    if (state.brushMode === "effect") {
-      drawCtx.shadowColor = state.brushColor;
-      drawCtx.shadowBlur = 16;
+    if (state.brushMode === "eraser") {
+      drawCtx.globalCompositeOperation = "destination-out";
+      drawCtx.strokeStyle = "rgba(0, 0, 0, 1)";
+      drawCtx.lineWidth = state.brushWidth * 2.2;
+    } else {
+      const color = state.brushMode === "effect"
+        ? EFFECTS[state.effectType].color
+        : state.brushColor;
+      drawCtx.strokeStyle = color;
+      drawCtx.lineWidth = state.brushWidth;
+      if (state.brushMode === "effect") {
+        drawCtx.shadowColor = color;
+        drawCtx.shadowBlur = 14;
+      }
     }
 
     drawCtx.beginPath();
@@ -342,94 +377,124 @@
     drawCtx.lineTo(to.x, to.y);
     drawCtx.stroke();
     drawCtx.restore();
+  }
 
-    drawCtx.fillStyle = state.brushColor;
-    drawCtx.beginPath();
-    drawCtx.arc(to.x, to.y, state.brushWidth * 0.5, 0, Math.PI * 2);
-    drawCtx.fill();
+  function smoothTip(rawTip) {
+    if (!state.smoothTip) {
+      state.smoothTip = { x: rawTip.x, y: rawTip.y };
+    } else {
+      state.smoothTip.x += (rawTip.x - state.smoothTip.x) * 0.42;
+      state.smoothTip.y += (rawTip.y - state.smoothTip.y) * 0.42;
+    }
   }
 
   function updateBrush(dt) {
-    if (!state.calibrated || !state.tip) {
+    if (!state.calibrated || !state.armed || !state.tip) {
       state.drawing = false;
-      state.prevTip = null;
+      state.prevSmoothTip = null;
       return;
     }
 
-    const tip = state.tip;
-
-    if (state.handGesture === "fist") {
+    if (state.handGesture !== "draw") {
       state.drawing = false;
-      state.prevTip = null;
-      state.brushWidth = Math.min(48, state.brushWidth + dt * 28);
-      updateBrushUI();
+      state.prevSmoothTip = null;
       return;
     }
 
-    if (state.handGesture === "draw") {
-      if (state.drawing && state.prevTip) {
-        const distance = Math.hypot(tip.x - state.prevTip.x, tip.y - state.prevTip.y);
-        if (distance > 1) {
-          drawStroke(state.prevTip, tip);
-        }
-      }
+    smoothTip(state.tip);
 
-      state.drawing = true;
-      state.prevTip = { x: tip.x, y: tip.y };
-
-      if (state.brushMode === "effect") {
-        spawnEffectParticles(tip, dt);
+    if (state.drawing && state.prevSmoothTip) {
+      const distance = Math.hypot(
+        state.smoothTip.x - state.prevSmoothTip.x,
+        state.smoothTip.y - state.prevSmoothTip.y
+      );
+      if (distance > 0.5) {
+        drawStroke(state.prevSmoothTip, state.smoothTip);
       }
-      return;
     }
 
-    state.drawing = false;
-    state.prevTip = null;
+    state.drawing = true;
+    state.prevSmoothTip = { x: state.smoothTip.x, y: state.smoothTip.y };
+
+    if (state.brushMode === "effect") {
+      spawnEffectParticles(state.smoothTip, dt, state.effectType);
+    }
   }
 
   function updateParticles(dt) {
     for (const particle of state.particles) {
       particle.x += particle.vx * dt;
       particle.y += particle.vy * dt;
-      particle.vx *= 0.97;
-      particle.vy *= 0.97;
       particle.life -= dt;
+
+      if (particle.type === "fire") {
+        particle.vy -= 45 * dt;
+        particle.vx *= 0.985;
+      } else if (particle.type === "water") {
+        particle.vy += 240 * dt;
+      } else {
+        particle.vx *= 0.97;
+        particle.vy *= 0.97;
+      }
     }
 
     state.particles = state.particles.filter((particle) => {
       return particle.life > 0 &&
-        particle.x > -80 &&
-        particle.x < (effectCanvas.width || 640) + 80 &&
-        particle.y > -80 &&
-        particle.y < (effectCanvas.height || 480) + 80;
+        particle.x > -100 &&
+        particle.x < (effectCanvas.width || 640) + 100 &&
+        particle.y > -100 &&
+        particle.y < (effectCanvas.height || 480) + 100;
     });
+  }
+
+  function drawTrackingArea() {
+    const width = effectCanvas.width || 640;
+    const height = effectCanvas.height || 480;
+    effectCtx.save();
+    effectCtx.strokeStyle = "rgba(255, 255, 255, 0.28)";
+    effectCtx.lineWidth = 2;
+    effectCtx.setLineDash([8, 8]);
+    effectCtx.strokeRect(8, 8, width - 16, height - 16);
+    effectCtx.restore();
   }
 
   function drawEffects() {
     effectCtx.clearRect(0, 0, effectCanvas.width, effectCanvas.height);
+    drawTrackingArea();
 
     if (state.tip && state.calibrated) {
-      const tip = state.tip;
-      const radius = Math.max(6, state.brushWidth * 0.5);
-      const isFist = state.handGesture === "fist";
+      const tip = state.smoothTip || state.tip;
+      const radius = Math.max(8, state.brushWidth * 0.5);
 
       effectCtx.save();
-      effectCtx.strokeStyle = isFist
-        ? "rgba(230, 184, 76, 0.95)"
-        : "rgba(255, 255, 255, 0.85)";
+      effectCtx.strokeStyle = state.armed
+        ? "rgba(255, 255, 255, 0.9)"
+        : "rgba(230, 184, 76, 0.95)";
       effectCtx.lineWidth = 2;
-      effectCtx.beginPath();
-      effectCtx.arc(tip.x, tip.y, radius + 8, 0, Math.PI * 2);
-      effectCtx.stroke();
 
-      if (isFist) {
-        const grow = (state.brushWidth / 48) * Math.PI * 2;
-        effectCtx.beginPath();
-        effectCtx.arc(tip.x, tip.y, radius + 14, -Math.PI / 2, -Math.PI / 2 + grow);
-        effectCtx.stroke();
+      if (!state.armed) {
+        effectCtx.setLineDash([6, 6]);
       }
 
-      effectCtx.fillStyle = state.brushColor;
+      effectCtx.beginPath();
+      effectCtx.arc(tip.x, tip.y, radius + 10, 0, Math.PI * 2);
+      effectCtx.stroke();
+
+      effectCtx.setLineDash([]);
+      effectCtx.beginPath();
+      effectCtx.moveTo(tip.x - 22, tip.y);
+      effectCtx.lineTo(tip.x - 8, tip.y);
+      effectCtx.moveTo(tip.x + 8, tip.y);
+      effectCtx.lineTo(tip.x + 22, tip.y);
+      effectCtx.moveTo(tip.x, tip.y - 22);
+      effectCtx.lineTo(tip.x, tip.y - 8);
+      effectCtx.moveTo(tip.x, tip.y + 8);
+      effectCtx.lineTo(tip.x, tip.y + 22);
+      effectCtx.stroke();
+
+      effectCtx.fillStyle = state.brushMode === "effect"
+        ? EFFECTS[state.effectType].color
+        : state.brushColor;
       effectCtx.beginPath();
       effectCtx.arc(tip.x, tip.y, 3, 0, Math.PI * 2);
       effectCtx.fill();
@@ -453,7 +518,7 @@
     drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
     state.particles = [];
     state.drawing = false;
-    state.prevTip = null;
+    state.prevSmoothTip = null;
     brushStatus.textContent = state.calibrated ? "画布已清空" : "画布已清空";
     setRuntime("画布已清空");
   }
@@ -477,7 +542,32 @@
     state.brushMode = mode;
     normalBrushButton.classList.toggle("active", mode === "normal");
     effectBrushButton.classList.toggle("active", mode === "effect");
-    setRuntime(mode === "normal" ? "普通画笔" : "特效画笔");
+    eraserButton.classList.toggle("active", mode === "eraser");
+    effectTypeGrid.hidden = mode !== "effect";
+    state.drawing = false;
+    state.prevSmoothTip = null;
+    setRuntime(mode === "normal" ? "普通画笔" : mode === "effect" ? "特效画笔" : "橡皮擦");
+  }
+
+  function setEffectType(type) {
+    state.effectType = type;
+    effectTypeButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.effect === type);
+    });
+    setRuntime(`特效画笔：${EFFECTS[type].label}`);
+  }
+
+  function toggleDrawing() {
+    if (!state.calibrated) {
+      return;
+    }
+    state.armed = !state.armed;
+    if (!state.armed) {
+      state.drawing = false;
+      state.prevSmoothTip = null;
+    }
+    startDrawButton.textContent = state.armed ? "暂停作画" : "开始作画";
+    setRuntime(state.armed ? "作画中" : "已暂停");
   }
 
   function buildColorGrid() {
@@ -503,9 +593,14 @@
 
   startButton.addEventListener("click", enableDevices);
   calibrateButton.addEventListener("click", startCalibration);
+  startDrawButton.addEventListener("click", toggleDrawing);
   clearButton.addEventListener("click", clearCanvas);
   normalBrushButton.addEventListener("click", () => setBrushMode("normal"));
   effectBrushButton.addEventListener("click", () => setBrushMode("effect"));
+  eraserButton.addEventListener("click", () => setBrushMode("eraser"));
+  effectTypeButtons.forEach((button) => {
+    button.addEventListener("click", () => setEffectType(button.dataset.effect));
+  });
   brushSizeInput.addEventListener("input", (event) => {
     state.brushWidth = Number(event.target.value);
     updateBrushUI();
@@ -518,5 +613,6 @@
   });
 
   buildColorGrid();
+  setEffectType("fire");
   updateBrushUI();
 })();

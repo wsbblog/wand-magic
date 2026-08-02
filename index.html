@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <h1>魔法画笔</h1>
-        <p class="subtitle">食指作画，握拳调整笔画粗细</p>
+        <p class="subtitle">食指作画，手动调整笔画粗细</p>
       </div>
       <div class="runtime-status" id="runtimeStatus">未启动</div>
     </header>
@@ -40,6 +40,7 @@
           <div class="button-grid">
             <button id="startButton" class="primary">开启摄像头</button>
             <button id="calibrateButton" disabled>校准食指</button>
+            <button id="startDrawButton" class="primary" disabled>开始作画</button>
             <button id="clearButton" class="danger">清空画布</button>
           </div>
           <div class="status-list">
@@ -53,12 +54,20 @@
           <div class="brush-mode-grid">
             <button id="normalBrushButton" class="brush-mode active">普通画笔</button>
             <button id="effectBrushButton" class="brush-mode">特效画笔</button>
+            <button id="eraserButton" class="brush-mode">橡皮擦</button>
+          </div>
+          <h2>特效类型</h2>
+          <div class="effect-type-grid" id="effectTypeGrid" hidden>
+            <button class="effect-type" data-effect="fire">火焰</button>
+            <button class="effect-type" data-effect="water">清水</button>
+            <button class="effect-type" data-effect="star">星光</button>
+            <button class="effect-type" data-effect="lightning">闪电</button>
           </div>
           <h2>颜色</h2>
           <div class="color-grid" id="colorGrid"></div>
           <h2>粗细</h2>
           <input id="brushSizeInput" class="brush-size-input" type="range" min="2" max="48" step="1" value="6">
-          <div class="brush-size-note">握拳可继续增大，张开后按当前粗细作画</div>
+          <div class="brush-size-note">拖动滑块手动调整笔画粗细</div>
         </section>
       </aside>
     </main>
