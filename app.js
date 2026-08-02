@@ -366,18 +366,41 @@
       drawCtx.globalCompositeOperation = "destination-out";
       drawCtx.strokeStyle = "rgba(0, 0, 0, 1)";
       drawCtx.lineWidth = Math.max(220, state.brushWidth * 4);
-    } else {
-      const color = state.brushMode === "effect"
-        ? EFFECTS[state.effectType].color
-        : state.brushColor;
-      drawCtx.strokeStyle = color;
-      drawCtx.lineWidth = state.brushWidth;
-      if (state.brushMode === "effect") {
-        drawCtx.shadowColor = color;
-        drawCtx.shadowBlur = 14;
-      }
+      drawCtx.beginPath();
+      drawCtx.moveTo(from.x, from.y);
+      drawCtx.lineTo(to.x, to.y);
+      drawCtx.stroke();
+      drawCtx.restore();
+      return;
     }
 
+    const color = state.brushMode === "effect"
+      ? EFFECTS[state.effectType].color
+      : state.brushColor;
+
+    if (state.brushMode === "effect") {
+      drawCtx.shadowColor = color;
+      drawCtx.shadowBlur = 20;
+      drawCtx.strokeStyle = hexToRgba(color, 0.35);
+      drawCtx.lineWidth = state.brushWidth * 2.4;
+      drawCtx.beginPath();
+      drawCtx.moveTo(from.x, from.y);
+      drawCtx.lineTo(to.x, to.y);
+      drawCtx.stroke();
+
+      drawCtx.shadowBlur = 0;
+      drawCtx.strokeStyle = color;
+      drawCtx.lineWidth = Math.max(2, state.brushWidth * 0.9);
+      drawCtx.beginPath();
+      drawCtx.moveTo(from.x, from.y);
+      drawCtx.lineTo(to.x, to.y);
+      drawCtx.stroke();
+      drawCtx.restore();
+      return;
+    }
+
+    drawCtx.strokeStyle = color;
+    drawCtx.lineWidth = state.brushWidth;
     drawCtx.beginPath();
     drawCtx.moveTo(from.x, from.y);
     drawCtx.lineTo(to.x, to.y);
@@ -409,7 +432,7 @@
 
     smoothTip(state.tip);
 
-    if (state.drawing && state.prevSmoothTip && state.brushMode !== "effect") {
+    if (state.drawing && state.prevSmoothTip) {
       const distance = Math.hypot(
         state.smoothTip.x - state.prevSmoothTip.x,
         state.smoothTip.y - state.prevSmoothTip.y
