@@ -303,7 +303,7 @@
 
   function spawnEffectParticles(tip, dt, effectType) {
     const effect = EFFECTS[effectType];
-    let count = Math.max(1, Math.round(dt * 80));
+    let count = Math.max(1, Math.round(dt * 130));
 
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
@@ -365,7 +365,7 @@
     if (state.brushMode === "eraser") {
       drawCtx.globalCompositeOperation = "destination-out";
       drawCtx.strokeStyle = "rgba(0, 0, 0, 1)";
-      drawCtx.lineWidth = state.brushWidth * 2.2;
+      drawCtx.lineWidth = Math.max(220, state.brushWidth * 4);
     } else {
       const color = state.brushMode === "effect"
         ? EFFECTS[state.effectType].color
@@ -409,7 +409,7 @@
 
     smoothTip(state.tip);
 
-    if (state.drawing && state.prevSmoothTip) {
+    if (state.drawing && state.prevSmoothTip && state.brushMode !== "effect") {
       const distance = Math.hypot(
         state.smoothTip.x - state.prevSmoothTip.x,
         state.smoothTip.y - state.prevSmoothTip.y
