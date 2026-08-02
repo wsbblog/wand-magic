@@ -1,0 +1,12 @@
+{
+  "name": "wand-magic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser wand magic app with camera tracking, Chinese speech commands, and spell effects.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
