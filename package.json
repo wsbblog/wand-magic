@@ -2,7 +2,7 @@
   "name": "wand-magic",
   "version": "1.0.0",
   "private": true,
-  "description": "Browser wand magic app with camera tracking, Chinese speech commands, and spell effects.",
+  "description": "Browser finger drawing app with hand tracking and effect brush.",
   "scripts": {
     "start": "node server.js"
   },

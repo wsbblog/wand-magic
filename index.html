@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>霍格沃茨手势施法台</title>
+  <title>魔法画笔</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <h1>霍格沃茨手势施法台</h1>
-        <p class="subtitle">摄像头识别手掌，握拳蓄力、张开释放魔法</p>
+        <h1>魔法画笔</h1>
+        <p class="subtitle">食指作画，握拳调整笔画粗细</p>
       </div>
       <div class="runtime-status" id="runtimeStatus">未启动</div>
     </header>
@@ -20,21 +20,17 @@
       <section class="stage-wrap">
         <div class="stage" id="stage">
           <video id="camera" autoplay muted playsinline></video>
+          <canvas id="drawCanvas"></canvas>
           <canvas id="effectCanvas"></canvas>
           <div class="calibration-target" id="calibrationTarget" hidden>
             <div class="calibration-ring"></div>
-            <div class="calibration-label" id="calibrationLabel">请张开手掌放在圆圈中</div>
+            <div class="calibration-label" id="calibrationLabel">请伸出食指放入圆圈</div>
             <div class="calibration-progress">
               <span id="calibrationProgress"></span>
             </div>
           </div>
-          <div class="charge-meter" id="chargeMeter" hidden>
-            <span class="charge-label" id="chargeLabel">蓄力</span>
-            <div class="charge-track"><span id="chargeFill"></span></div>
-            <span class="charge-value" id="chargeValue">0%</span>
-          </div>
-          <div class="wand-status" id="wandStatus">手掌：等待识别</div>
-          <div class="cast-banner" id="castBanner" hidden></div>
+          <div class="brush-status" id="brushStatus">手指：等待识别</div>
+          <div class="brush-size-pill" id="brushSizePill">粗细 6</div>
         </div>
       </section>
 
@@ -42,26 +38,27 @@
         <section class="panel-section">
           <h2>启动</h2>
           <div class="button-grid">
-            <button id="startButton" class="primary">开启摄像头与麦克风</button>
-            <button id="calibrateButton" disabled>校准手掌</button>
-            <button id="stopButton" class="danger" disabled>停止施法</button>
+            <button id="startButton" class="primary">开启摄像头</button>
+            <button id="calibrateButton" disabled>校准食指</button>
+            <button id="clearButton" class="danger">清空画布</button>
           </div>
           <div class="status-list">
             <div><span>摄像头</span><strong id="cameraStatus">未连接</strong></div>
-            <div><span>麦克风</span><strong id="micStatus">未连接</strong></div>
             <div><span>手势识别</span><strong id="handStatus">未启用</strong></div>
-            <div><span>语音识别</span><strong id="speechStatus">未启动</strong></div>
           </div>
         </section>
 
         <section class="panel-section">
-          <h2>中文咒语</h2>
-          <div class="spell-list" id="spellList"></div>
-        </section>
-
-        <section class="panel-section">
-          <h2>语音反馈</h2>
-          <div class="transcript" id="transcript">等待启动</div>
+          <h2>画笔</h2>
+          <div class="brush-mode-grid">
+            <button id="normalBrushButton" class="brush-mode active">普通画笔</button>
+            <button id="effectBrushButton" class="brush-mode">特效画笔</button>
+          </div>
+          <h2>颜色</h2>
+          <div class="color-grid" id="colorGrid"></div>
+          <h2>粗细</h2>
+          <input id="brushSizeInput" class="brush-size-input" type="range" min="2" max="48" step="1" value="6">
+          <div class="brush-size-note">握拳可继续增大，张开后按当前粗细作画</div>
         </section>
       </aside>
     </main>
