@@ -27,6 +27,9 @@
   const calibrateButton = document.getElementById("calibrateButton");
   const startDrawButton = document.getElementById("startDrawButton");
   const clearButton = document.getElementById("clearButton");
+  const screenshotButton = document.getElementById("screenshotButton");
+  const screenshotPreview = document.getElementById("screenshotPreview");
+  const saveScreenshotButton = document.getElementById("saveScreenshotButton");
   const cameraStatus = document.getElementById("cameraStatus");
   const handStatus = document.getElementById("handStatus");
   const runtimeStatus = document.getElementById("runtimeStatus");
@@ -42,6 +45,8 @@
   const effectTypeButtons = Array.from(document.querySelectorAll(".effect-type"));
   const colorGrid = document.getElementById("colorGrid");
   const brushSizeInput = document.getElementById("brushSizeInput");
+  const captureCanvas = document.createElement("canvas");
+  const captureCtx = captureCanvas.getContext("2d");
 
   let handLandmarker = null;
 
@@ -117,6 +122,7 @@
       cameraStatus.textContent = "已连接";
       startButton.textContent = "摄像头已开启";
       calibrateButton.disabled = true;
+      screenshotButton.disabled = false;
       setRuntime("加载手势识别");
 
       resizeStage();
@@ -514,6 +520,28 @@
     effectCtx.restore();
   }
 
+  function captureScreenshot() {
+    const width = drawCanvas.width || video.videoWidth || 640;
+    const height = drawCanvas.height || video.videoHeight || 480;
+    captureCanvas.width = width;
+    captureCanvas.height = height;
+    captureCtx.clearRect(0, 0, width, height);
+
+    captureCtx.save();
+    captureCtx.translate(width, 0);
+    captureCtx.scale(-1, 1);
+    captureCtx.drawImage(video, 0, 0, width, height);
+    captureCtx.restore();
+
+    captureCtx.drawImage(drawCanvas, 0, 0);
+    captureCtx.drawImage(effectCanvas, 0, 0);
+
+    screenshotPreview.src = captureCanvas.toDataURL("image/png");
+    screenshotPreview.hidden = false;
+    saveScreenshotButton.hidden = false;
+    setRuntime("已截图");
+  }
+
   function clearCanvas() {
     drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
     state.particles = [];
@@ -595,6 +623,15 @@
   calibrateButton.addEventListener("click", startCalibration);
   startDrawButton.addEventListener("click", toggleDrawing);
   clearButton.addEventListener("click", clearCanvas);
+  screenshotButton.addEventListener("click", captureScreenshot);
+  saveScreenshotButton.addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = screenshotPreview.src;
+    link.download = "魔法画作.png";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  });
   normalBrushButton.addEventListener("click", () => setBrushMode("normal"));
   effectBrushButton.addEventListener("click", () => setBrushMode("effect"));
   eraserButton.addEventListener("click", () => setBrushMode("eraser"));

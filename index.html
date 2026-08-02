@@ -42,6 +42,7 @@
             <button id="calibrateButton" disabled>校准食指</button>
             <button id="startDrawButton" class="primary" disabled>开始作画</button>
             <button id="clearButton" class="danger">清空画布</button>
+            <button id="screenshotButton" class="primary" disabled>截图</button>
           </div>
           <div class="status-list">
             <div><span>摄像头</span><strong id="cameraStatus">未连接</strong></div>
@@ -68,6 +69,12 @@
           <h2>粗细</h2>
           <input id="brushSizeInput" class="brush-size-input" type="range" min="2" max="48" step="1" value="6">
           <div class="brush-size-note">拖动滑块手动调整笔画粗细</div>
+        </section>
+
+        <section class="panel-section">
+          <h2>截图</h2>
+          <img id="screenshotPreview" class="screenshot-preview" alt="截图预览" hidden>
+          <button id="saveScreenshotButton" class="primary" hidden>保存图片</button>
         </section>
       </aside>
     </main>

@@ -374,6 +374,19 @@ button.danger {
   line-height: 1.5;
 }
 
+.screenshot-preview {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #000;
+}
+
+#saveScreenshotButton {
+  width: 100%;
+}
+
 @media (max-width: 900px) {
   .workspace {
     grid-template-columns: 1fr;
