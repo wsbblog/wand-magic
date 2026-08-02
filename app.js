@@ -27,14 +27,6 @@
 
   const CLEAR_ALIASES = Object.freeze(["停止施法", "魔法消散", "清除魔法"]);
 
-  const SCAN_W = 320;
-  const SCAN_H = 180;
-  const scanCanvas = document.createElement("canvas");
-  scanCanvas.width = SCAN_W;
-  scanCanvas.height = SCAN_H;
-  const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
-  const scanMask = new Uint8Array(SCAN_W * SCAN_H);
-  const scanVisited = new Uint8Array(SCAN_W * SCAN_H);
   let handLandmarker = null;
 
   const video = document.getElementById("camera");
@@ -56,6 +48,10 @@
   const castBanner = document.getElementById("castBanner");
   const transcript = document.getElementById("transcript");
   const spellList = document.getElementById("spellList");
+  const chargeMeter = document.getElementById("chargeMeter");
+  const chargeLabel = document.getElementById("chargeLabel");
+  const chargeFill = document.getElementById("chargeFill");
+  const chargeValue = document.getElementById("chargeValue");
 
   const state = {
     stream: null,
@@ -63,23 +59,18 @@
     micReady: false,
     speechOn: false,
     trackingMode: "idle",
-    userChoseColor: false,
     mode: "idle",
+    palmCalibrated: false,
+    handGesture: "none",
+    charging: false,
+    charge: 0,
+    selectedSpell: "除你武器",
+    release: null,
     wand: {
       calibrated: false,
-      colorCalibrated: false,
-      h: 0,
-      sMin: 0,
-      vMin: 0,
-      hRange: 0,
       x: 0,
       y: 0,
-      confidence: 0,
-      area: 0
-    },
-    calibration: {
-      frames: [],
-      start: 0
+      confidence: 0
     },
     activeSpell: null,
     spellStartedAt: 0,
@@ -101,48 +92,6 @@
     const g = parseInt(value.slice(2, 4), 16);
     const b = parseInt(value.slice(4, 6), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
-  function rgbToHsv(r, g, b) {
-    const rn = r / 255;
-    const gn = g / 255;
-    const bn = b / 255;
-    const max = Math.max(rn, gn, bn);
-    const min = Math.min(rn, gn, bn);
-    const delta = max - min;
-    let h = 0;
-
-    if (delta !== 0) {
-      if (max === rn) {
-        h = 60 * (((gn - bn) / delta) % 6);
-      } else if (max === gn) {
-        h = 60 * ((bn - rn) / delta + 2);
-      } else {
-        h = 60 * ((rn - gn) / delta + 4);
-      }
-    }
-
-    if (h < 0) {
-      h += 360;
-    }
-
-    const s = max === 0 ? 0 : (delta / max) * 100;
-    const v = max * 100;
-    return { h, s, v };
-  }
-
-  function inColorRangeWith(hsv, hueRange, saturationMin, valueMin) {
-    const diff = Math.abs(hsv.h - state.wand.h) % 360;
-    const hueDistance = diff > 180 ? 360 - diff : diff;
-    return (
-      hueDistance <= hueRange &&
-      hsv.s >= saturationMin &&
-      hsv.v >= valueMin
-    );
-  }
-
-  function inColorRange(hsv) {
-    return inColorRangeWith(hsv, state.wand.hRange, state.wand.sMin, state.wand.vMin);
   }
 
   function resizeStage() {
@@ -187,6 +136,8 @@
 
       resizeStage();
       startSpeechRecognition();
+      handStatus.textContent = "加载中";
+      wandStatus.textContent = "手掌：等待识别";
       initializeHandTracking();
       requestAnimationFrame(loop);
     } catch (error) {
@@ -208,108 +159,38 @@
       return;
     }
 
-    state.mode = "calibrating";
-    state.trackingMode = "color";
-    state.userChoseColor = true;
-    state.wand.calibrated = false;
-    state.wand.colorCalibrated = false;
-    state.wand.confidence = 0;
-    state.calibration.frames = [];
-    state.calibration.start = performance.now();
-    calibrationTarget.hidden = false;
-    calibrationLabel.textContent = "请把魔杖尖端或手掌保持在圆圈内";
-    calibrationProgress.style.width = "0%";
-    wandStatus.textContent = "魔杖：校准中";
-    calibrateButton.disabled = true;
-    handStatus.textContent = "颜色校准";
-  }
-
-  function collectCalibrationFrame(now) {
-    const halfX = 48;
-    const halfY = 36;
-    const cx = Math.floor(SCAN_W / 2);
-    const cy = Math.floor(SCAN_H / 2);
-    const imageData = scanCtx.getImageData(cx - halfX, cy - halfY, halfX * 2, halfY * 2);
-    const data = imageData.data;
-    const colors = [];
-
-    for (let i = 0; i < imageData.width * imageData.height; i += 1) {
-      const r = data[i * 4];
-      const g = data[i * 4 + 1];
-      const b = data[i * 4 + 2];
-      const hsv = rgbToHsv(r, g, b);
-      if (hsv.s >= 12 && hsv.v >= 30 && hsv.v <= 250) {
-        colors.push(hsv);
-      }
-    }
-
-    if (colors.length >= 20) {
-      const h = colors.reduce((sum, item) => sum + item.h, 0) / colors.length;
-      const s = colors.reduce((sum, item) => sum + item.s, 0) / colors.length;
-      const v = colors.reduce((sum, item) => sum + item.v, 0) / colors.length;
-      state.calibration.frames.push({ h, s, v });
-    }
-
-    const elapsed = now - state.calibration.start;
-    const progress = Math.min(100, (elapsed / 1800) * 100);
-    calibrationProgress.style.width = `${progress}%`;
-    calibrationLabel.textContent = `校准中 ${state.calibration.frames.length}/6 帧…`;
-
-    if (elapsed >= 1800) {
-      finishCalibration();
-    }
-  }
-
-  function finishCalibration() {
-    const frames = state.calibration.frames;
-    calibrationTarget.hidden = true;
-    calibrateButton.disabled = false;
-
-    if (frames.length < 6) {
-      state.mode = "idle";
-      calibrationLabel.textContent = "没有采集到足够颜色，请重试";
-      wandStatus.textContent = "魔杖：颜色不足";
-      handStatus.textContent = "颜色校准";
-      setRuntime("校准失败");
+    if (!handLandmarker) {
+      calibrationTarget.hidden = true;
+      calibrateButton.disabled = true;
+      handStatus.textContent = "不可用";
+      wandStatus.textContent = "手势识别不可用";
+      setRuntime("无法校准");
       return;
     }
 
-    const radians = frames.map((item) => (item.h * Math.PI) / 180);
-    const cosSum = radians.reduce((sum, angle) => sum + Math.cos(angle), 0);
-    const sinSum = radians.reduce((sum, angle) => sum + Math.sin(angle), 0);
-    const count = frames.length;
-    let meanHue = (Math.atan2(sinSum / count, cosSum / count) * 180) / Math.PI;
-    if (meanHue < 0) {
-      meanHue += 360;
-    }
+    state.mode = "calibrating";
+    state.trackingMode = "hand";
+    state.palmCalibrated = false;
+    state.wand.calibrated = true;
+    state.wand.confidence = 0;
+    calibrationTarget.hidden = false;
+    calibrationLabel.textContent = "请张开手掌放在圆圈中";
+    calibrationProgress.style.width = "0%";
+    calibrateButton.disabled = true;
+    wandStatus.textContent = "手掌：校准中";
+    handStatus.textContent = "等待张开手掌";
+  }
 
-    const meanCos = cosSum / count;
-    const meanSin = sinSum / count;
-    const concentration = Math.hypot(meanCos, meanSin);
-    const hueRange = Math.max(20, Math.min(50, 28 + (1 - concentration) * 35));
-    const sMean = frames.reduce((sum, item) => sum + item.s, 0) / count;
-    const vMean = frames.reduce((sum, item) => sum + item.v, 0) / count;
-    const width = effectCanvas.width || video.videoWidth || 640;
-    const height = effectCanvas.height || video.videoHeight || 480;
-
-    state.wand = {
-      calibrated: true,
-      colorCalibrated: true,
-      h: meanHue,
-      sMin: Math.max(40, sMean - 75),
-      vMin: Math.max(30, vMean - 95),
-      hRange: hueRange,
-      x: width / 2,
-      y: height / 2,
-      confidence: 0.55,
-      area: 0
-    };
+  function finishPalmCalibration() {
+    state.palmCalibrated = true;
     state.mode = "ready";
-    state.trackingMode = "color";
-    state.tipHistory = [{ x: width / 2, y: height / 2 }];
-    calibrationLabel.textContent = "校准完成";
-    wandStatus.textContent = "魔杖：已校准";
-    handStatus.textContent = "颜色校准";
+    state.trackingMode = "hand";
+    calibrationTarget.hidden = true;
+    calibrationProgress.style.width = "100%";
+    calibrationLabel.textContent = "手掌校准完成";
+    wandStatus.textContent = "手掌：已校准";
+    handStatus.textContent = "手势识别";
+    calibrateButton.disabled = false;
     setRuntime("等待咒语");
   }
 
@@ -336,27 +217,52 @@
         handLandmarker = await vision.HandLandmarker.createFromOptions(fileset, options);
       }
 
-      if (state.userChoseColor) {
-        state.trackingMode = "color";
-        handStatus.textContent = "颜色校准";
-        return;
-      }
-
       state.trackingMode = "hand";
+      state.palmCalibrated = true;
       state.wand.calibrated = true;
-      state.wand.colorCalibrated = false;
       state.wand.confidence = 0;
       state.mode = "ready";
       state.wand.x = (effectCanvas.width || video.videoWidth || 640) / 2;
       state.wand.y = (effectCanvas.height || video.videoHeight || 480) / 2;
-      handStatus.textContent = "已就绪";
-      wandStatus.textContent = "手部识别：就绪";
+      handStatus.textContent = "手势识别";
+      wandStatus.textContent = "手掌：等待识别";
       setRuntime("等待咒语");
     } catch (_) {
-      state.trackingMode = "color";
+      state.trackingMode = "hand";
       handStatus.textContent = "不可用";
-      wandStatus.textContent = "手部识别不可用，请使用颜色校准";
+      wandStatus.textContent = "手势识别不可用";
+      calibrateButton.disabled = true;
+      setRuntime("手势识别不可用");
     }
+  }
+
+  function classifyHandGesture(landmarks) {
+    const wrist = landmarks[0];
+    const fingers = [
+      { tip: 8, mcp: 5 },
+      { tip: 12, mcp: 9 },
+      { tip: 16, mcp: 13 },
+      { tip: 20, mcp: 17 }
+    ];
+    let extended = 0;
+
+    for (const finger of fingers) {
+      const tip = landmarks[finger.tip];
+      const mcp = landmarks[finger.mcp];
+      const tipDistance = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+      const mcpDistance = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+      if (tipDistance > mcpDistance * 1.08) {
+        extended += 1;
+      }
+    }
+
+    if (extended >= 4) {
+      return "open";
+    }
+    if (extended <= 1) {
+      return "fist";
+    }
+    return "partial";
   }
 
   function detectHand(now) {
@@ -372,24 +278,34 @@
     }
 
     if (!result.landmarks || !result.landmarks.length) {
+      state.handGesture = "none";
+      state.charging = false;
+      chargeMeter.hidden = true;
       state.wand.confidence = Math.max(0, state.wand.confidence - 0.01);
       wandStatus.textContent = state.wand.confidence > 0.08
-        ? "手部：弱信号"
-        : "手部：丢失";
+        ? "手掌：弱信号"
+        : "手掌：丢失";
       return false;
     }
 
     const landmarks = result.landmarks[0];
-    const indexPip = landmarks[6];
-    const indexTip = landmarks[8];
+    const gesture = classifyHandGesture(landmarks);
+    state.handGesture = gesture;
+
+    const palmIndices = [0, 5, 9, 13, 17];
+    let palmX = 0;
+    let palmY = 0;
+    for (const index of palmIndices) {
+      palmX += landmarks[index].x;
+      palmY += landmarks[index].y;
+    }
+    palmX /= palmIndices.length;
+    palmY /= palmIndices.length;
+
     const width = video.videoWidth || effectCanvas.width || 640;
     const height = video.videoHeight || effectCanvas.height || 480;
-    const dx = indexTip.x - indexPip.x;
-    const dy = indexTip.y - indexPip.y;
-    const tipX = indexTip.x + dx * 0.65;
-    const tipY = indexTip.y + dy * 0.65;
-    const displayX = (1 - tipX) * width;
-    const displayY = tipY * height;
+    const displayX = (1 - palmX) * width;
+    const displayY = palmY * height;
 
     state.wand.x = state.wand.x
       ? state.wand.x + (displayX - state.wand.x) * 0.55
@@ -398,131 +314,21 @@
       ? state.wand.y + (displayY - state.wand.y) * 0.55
       : displayY;
     state.wand.confidence = Math.min(1, state.wand.confidence + 0.15);
-    state.wand.area = 1;
     state.tipHistory.push({ x: state.wand.x, y: state.wand.y });
     if (state.tipHistory.length > 8) {
       state.tipHistory.shift();
     }
-    wandStatus.textContent = "手部：已识别";
+
+    if (state.mode === "calibrating" && gesture === "open") {
+      finishPalmCalibration();
+    }
+
+    wandStatus.textContent = gesture === "fist"
+      ? "手掌：蓄力"
+      : gesture === "open"
+        ? "手掌：张开"
+        : "手掌：已识别";
     return true;
-  }
-
-  function findColorBlob(hueRange, saturationMin, valueMin, minArea) {
-    const imageData = scanCtx.getImageData(0, 0, SCAN_W, SCAN_H);
-    const data = imageData.data;
-    scanMask.fill(0);
-    scanVisited.fill(0);
-
-    for (let i = 0; i < SCAN_W * SCAN_H; i += 1) {
-      const r = data[i * 4];
-      const g = data[i * 4 + 1];
-      const b = data[i * 4 + 2];
-      if (inColorRangeWith(rgbToHsv(r, g, b), hueRange, saturationMin, valueMin)) {
-        scanMask[i] = 1;
-      }
-    }
-
-    const baseWidth = video.videoWidth || effectCanvas.width || 640;
-    const baseHeight = video.videoHeight || effectCanvas.height || 480;
-    const lastRawX = SCAN_W - (state.wand.x / baseWidth) * SCAN_W;
-    const lastRawY = (state.wand.y / baseHeight) * SCAN_H;
-    let best = null;
-
-    for (let start = 0; start < SCAN_W * SCAN_H; start += 1) {
-      if (!scanMask[start] || scanVisited[start]) {
-        continue;
-      }
-
-      const stack = [start];
-      scanVisited[start] = 1;
-      let area = 0;
-      let sumX = 0;
-      let sumY = 0;
-
-      while (stack.length) {
-        const index = stack.pop();
-        const x = index % SCAN_W;
-        const y = (index - x) / SCAN_W;
-        area += 1;
-        sumX += x;
-        sumY += y;
-
-        if (x > 0 && scanMask[index - 1] && !scanVisited[index - 1]) {
-          scanVisited[index - 1] = 1;
-          stack.push(index - 1);
-        }
-        if (x < SCAN_W - 1 && scanMask[index + 1] && !scanVisited[index + 1]) {
-          scanVisited[index + 1] = 1;
-          stack.push(index + 1);
-        }
-        if (index >= SCAN_W && scanMask[index - SCAN_W] && !scanVisited[index - SCAN_W]) {
-          scanVisited[index - SCAN_W] = 1;
-          stack.push(index - SCAN_W);
-        }
-        if (index < SCAN_W * (SCAN_H - 1) && scanMask[index + SCAN_W] && !scanVisited[index + SCAN_W]) {
-          scanVisited[index + SCAN_W] = 1;
-          stack.push(index + SCAN_W);
-        }
-      }
-
-      if (area >= minArea) {
-        const cx = sumX / area;
-        const cy = sumY / area;
-        const distance = Math.hypot(cx - lastRawX, cy - lastRawY);
-        const proximityBoost = state.wand.confidence > 0.06 ? 4 / (1 + distance / 40) : 0;
-        const score = area * (1 + proximityBoost);
-        if (!best || score > best.score) {
-          best = { cx, cy, area, score };
-        }
-      }
-    }
-
-    return best;
-  }
-
-  function detectWandTip() {
-    let best = findColorBlob(state.wand.hRange, state.wand.sMin, state.wand.vMin, 6);
-    let usingExpandedRange = false;
-
-    if (!best) {
-      const expandedHue = Math.min(95, state.wand.hRange + 18);
-      const expandedSaturation = Math.max(8, state.wand.sMin - 22);
-      const expandedValue = Math.max(15, state.wand.vMin - 15);
-      best = findColorBlob(expandedHue, expandedSaturation, expandedValue, 4);
-      usingExpandedRange = Boolean(best);
-    }
-
-    const baseWidth = video.videoWidth || effectCanvas.width || 640;
-    const baseHeight = video.videoHeight || effectCanvas.height || 480;
-
-    if (best) {
-      const mirroredX = SCAN_W - best.cx;
-      const displayX = (mirroredX / SCAN_W) * baseWidth;
-      const displayY = (best.cy / SCAN_H) * baseHeight;
-      const nextX = state.wand.calibrated
-        ? state.wand.x + (displayX - state.wand.x) * 0.55
-        : displayX;
-      const nextY = state.wand.calibrated
-        ? state.wand.y + (displayY - state.wand.y) * 0.55
-        : displayY;
-
-      state.wand.x = nextX;
-      state.wand.y = nextY;
-      state.wand.confidence = Math.min(1, state.wand.confidence + (usingExpandedRange ? 0.08 : 0.14));
-      state.wand.area = best.area;
-      state.tipHistory.push({ x: nextX, y: nextY });
-      if (state.tipHistory.length > 8) {
-        state.tipHistory.shift();
-      }
-      wandStatus.textContent = usingExpandedRange ? "魔杖：弱信号" : "魔杖：已识别";
-    } else {
-      state.wand.confidence = Math.max(0, state.wand.confidence - 0.008);
-      wandStatus.textContent = state.wand.confidence > 0.25
-        ? "魔杖：保持跟踪"
-        : state.wand.confidence > 0.08
-          ? "魔杖：弱信号"
-          : "魔杖：丢失";
-    }
   }
 
   function updateDetection(now) {
@@ -531,23 +337,14 @@
     }
 
     if (state.mode === "calibrating") {
-      scanCtx.drawImage(video, 0, 0, SCAN_W, SCAN_H);
-      collectCalibrationFrame(now);
-      return;
-    }
-
-    if (state.trackingMode === "hand" && handLandmarker) {
-      const handFound = detectHand(now);
-      if (!handFound && state.wand.colorCalibrated) {
-        scanCtx.drawImage(video, 0, 0, SCAN_W, SCAN_H);
-        detectWandTip();
+      if (handLandmarker) {
+        detectHand(now);
       }
       return;
     }
 
-    scanCtx.drawImage(video, 0, 0, SCAN_W, SCAN_H);
-    if (state.wand.calibrated) {
-      detectWandTip();
+    if (handLandmarker) {
+      detectHand(now);
     }
   }
 
@@ -678,14 +475,24 @@
     return { x: width / 2, y: height / 2 };
   }
 
-  function triggerSpell(name, source) {
+  function castBeam(name, power, source) {
     const spell = SPELLS[name];
     if (!spell) {
       return;
     }
 
+    const normalizedPower = Math.max(0.1, Math.min(1, power));
+    const duration = 1000 + normalizedPower * 3200;
+    const beamLength = 140 + normalizedPower * 520;
     state.activeSpell = name;
-    state.spellStartedAt = performance.now();
+    state.selectedSpell = name;
+    state.release = {
+      name,
+      power: normalizedPower,
+      startedAt: performance.now(),
+      duration,
+      beamLength
+    };
     state.particles = [];
     state.beams = [];
     state.lastCommandName = name;
@@ -697,15 +504,15 @@
       state.tipHistory.shift();
     }
 
-    if (spell.beam) {
-      state.beams.push({
-        x1: tip.x,
-        y1: tip.y,
-        x2: tip.x + 120,
-        y2: tip.y - 40,
-        color: spell.color
-      });
-    }
+    const end = getBeamEnd(tip, beamLength * 0.85);
+    state.beams.push({
+      x1: tip.x,
+      y1: tip.y,
+      x2: end.x,
+      y2: end.y,
+      color: spell.color,
+      fade: 1
+    });
 
     document.querySelectorAll(".spell-button").forEach((button) => {
       button.classList.toggle("active", button.dataset.spell === name);
@@ -719,14 +526,68 @@
       castBanner.classList.remove("show");
     }, 1600);
 
-    transcript.textContent = source === "voice" ? `语音识别：${name}` : `手动施法：${name}`;
+    transcript.textContent = source === "voice"
+      ? `语音识别：${name}`
+      : source === "gesture"
+        ? `蓄力释放：${name}`
+        : `手动施法：${name}`;
     setRuntime(`施法：${name}`);
+  }
+
+  function triggerSpell(name, source) {
+    castBeam(name, 0.8, source);
+  }
+
+  function releaseChargedSpell() {
+    const name = state.selectedSpell || "除你武器";
+    const power = state.charge;
+    state.charging = false;
+    castBeam(name, power, "gesture");
+    state.charge = 0;
+    updateChargeUI();
+  }
+
+  function updateChargeUI() {
+    const percent = Math.round(state.charge * 100);
+    chargeFill.style.width = `${percent}%`;
+    chargeValue.textContent = `${percent}%`;
+    chargeLabel.textContent = state.release
+      ? `释放 · ${state.release.name}`
+      : state.charging
+        ? `蓄力 · ${state.selectedSpell}`
+        : "蓄力";
+    chargeMeter.hidden = !state.charging && !state.release;
+  }
+
+  function updateGestureCharge(dt) {
+    const gesture = state.handGesture;
+
+    if (gesture === "fist") {
+      if (!state.charging) {
+        state.charging = true;
+        state.charge = 0;
+      }
+      state.charge = Math.min(1, state.charge + dt / 2.5);
+    } else if (gesture === "open") {
+      if (state.charging && state.charge > 0.05) {
+        releaseChargedSpell();
+      }
+      state.charging = false;
+    } else {
+      state.charging = false;
+    }
+
+    updateChargeUI();
   }
 
   function clearMagic() {
     state.activeSpell = null;
+    state.release = null;
     state.particles = [];
     state.beams = [];
+    state.charging = false;
+    state.charge = 0;
+    chargeMeter.hidden = true;
     document.querySelectorAll(".spell-button").forEach((button) => {
       button.classList.remove("active");
     });
@@ -759,7 +620,7 @@
     return min + Math.random() * (max - min);
   }
 
-  function getBeamEnd(tip) {
+  function getBeamEnd(tip, beamLength) {
     const history = state.tipHistory;
     const older = history.length >= 3
       ? history[Math.max(0, history.length - 3)]
@@ -767,172 +628,80 @@
     let dx = tip.x - older.x;
     let dy = tip.y - older.y;
     const length = Math.hypot(dx, dy);
+    const targetLength = beamLength || 280;
 
     if (length < 8) {
       dx = 110;
       dy = -35;
     } else {
-      dx = (dx / length) * 280;
-      dy = (dy / length) * 280;
+      dx = (dx / length) * targetLength;
+      dy = (dy / length) * targetLength;
     }
 
     return { x: tip.x + dx, y: tip.y + dy };
   }
 
-  function spawnEffectParticles(spell, tip, count) {
+  function spawnBeamParticles(spell, tip, release, fade, dt) {
+    const end = getBeamEnd(tip, release.beamLength * fade);
+    const count = Math.max(1, Math.round((spell.rate || 70) * dt * (0.25 + fade * 0.75)));
+
     for (let i = 0; i < count; i += 1) {
-      if (spell.kind === "lumos") {
-        addParticle(
-          tip.x + randomBetween(-10, 10),
-          tip.y + randomBetween(-10, 10),
-          randomBetween(-14, 14),
-          randomBetween(-18, 18),
-          randomBetween(0.8, 1.6),
-          randomBetween(4, 10),
-          Math.random() > 0.5 ? "#fff9cf" : "#ffd98a",
-          "orb"
-        );
-      } else if (spell.kind === "expelliarmus") {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = randomBetween(90, 280);
-        addParticle(
-          tip.x,
-          tip.y,
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed,
-          randomBetween(0.45, 0.9),
-          randomBetween(2, 5),
-          "#ff6573",
-          "spark"
-        );
-      } else if (spell.kind === "stupefy") {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = randomBetween(160, 430);
-        addParticle(
-          tip.x,
-          tip.y,
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed,
-          randomBetween(0.35, 0.8),
-          randomBetween(3, 7),
-          Math.random() > 0.5 ? "#ffb04d" : "#ffe2a3",
-          "spark"
-        );
-      } else if (spell.kind === "petrificus") {
-        addParticle(
-          tip.x + randomBetween(-12, 12),
-          tip.y + randomBetween(-12, 12),
-          randomBetween(-22, 22),
-          randomBetween(-26, 26),
-          randomBetween(1, 1.9),
-          randomBetween(2, 5),
-          Math.random() > 0.5 ? "#8fc8ff" : "#dff3ff",
-          "ice"
-        );
-      } else if (spell.kind === "leviosa") {
-        addParticle(
-          tip.x + randomBetween(-22, 22),
-          tip.y + randomBetween(-6, 14),
-          randomBetween(-24, 24),
-          randomBetween(-70, -26),
-          randomBetween(1.3, 2.4),
-          randomBetween(3, 7),
-          Math.random() > 0.5 ? "#c6f5ff" : "#9ae8ff",
-          "float"
-        );
-      } else if (spell.kind === "incendio") {
-        addParticle(
-          tip.x + randomBetween(-6, 6),
-          tip.y + randomBetween(-6, 6),
-          randomBetween(-26, 26),
-          randomBetween(-130, -35),
-          randomBetween(0.5, 1.3),
-          randomBetween(4, 12),
-          Math.random() > 0.5 ? "#ff9344" : "#ffd166",
-          "flame"
-        );
-        if (Math.random() > 0.55) {
-          addParticle(
-            tip.x,
-            tip.y,
-            randomBetween(-50, 50),
-            randomBetween(-60, 10),
-            randomBetween(0.3, 0.7),
-            randomBetween(1, 3),
-            "#ffb36b",
-            "spark"
-          );
-        }
-      } else if (spell.kind === "aguamenti") {
-        addParticle(
-          tip.x + randomBetween(-8, 8),
-          tip.y,
-          randomBetween(-40, 40),
-          randomBetween(70, 190),
-          randomBetween(0.7, 1.4),
-          randomBetween(2, 5),
-          Math.random() > 0.5 ? "#4cc9ff" : "#a6e5ff",
-          "drop"
-        );
-      } else if (spell.kind === "patronus") {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = randomBetween(40, 220);
-        addParticle(
-          tip.x,
-          tip.y,
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed - 30,
-          randomBetween(0.8, 1.8),
-          randomBetween(2, 6),
-          Math.random() > 0.5 ? "#dff3ff" : "#a8dfff",
-          "spark"
-        );
-      } else if (spell.kind === "avada") {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = randomBetween(50, 200);
-        addParticle(
-          tip.x,
-          tip.y,
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed,
-          randomBetween(0.6, 1.2),
-          randomBetween(2, 5),
-          Math.random() > 0.5 ? "#7bf29c" : "#c8ffd6",
-          "spark"
-        );
-      }
+      const t = Math.random();
+      const jitter = 4 + 12 * fade;
+      const x = tip.x + (end.x - tip.x) * t + randomBetween(-jitter, jitter);
+      const y = tip.y + (end.y - tip.y) * t + randomBetween(-jitter, jitter);
+      addParticle(
+        x,
+        y,
+        randomBetween(-24, 24),
+        randomBetween(-24, 24),
+        randomBetween(0.2, 0.65) * fade + 0.15,
+        randomBetween(2, 6) * fade + 1,
+        Math.random() > 0.5 ? spell.color : "#ffffff",
+        "spark"
+      );
     }
   }
 
   function updateActiveSpell(dt) {
-    const name = state.activeSpell;
-    if (!name) {
+    const release = state.release;
+    if (!release) {
       return;
     }
 
-    const spell = SPELLS[name];
-    if (Number.isFinite(spell.duration) && performance.now() - state.spellStartedAt >= spell.duration) {
+    const spell = SPELLS[release.name];
+    const elapsed = performance.now() - release.startedAt;
+    const progress = elapsed / release.duration;
+
+    if (progress >= 1) {
       clearMagic();
       return;
     }
 
+    const fade = Math.max(0, 1 - progress);
     const tip = getTipPoint();
-    const count = Math.max(1, Math.round(spell.rate * dt));
-    spawnEffectParticles(spell, tip, count);
+    const end = getBeamEnd(tip, release.beamLength * fade);
 
-    if (spell.beam) {
-      const end = getBeamEnd(tip);
-      if (!state.beams.length) {
-        state.beams.push({ x1: tip.x, y1: tip.y, x2: end.x, y2: end.y, color: spell.color });
-      } else {
-        const beam = state.beams[0];
-        beam.x1 = tip.x;
-        beam.y1 = tip.y;
-        beam.x2 = end.x;
-        beam.y2 = end.y;
-        beam.color = spell.color;
-      }
+    if (!state.beams.length) {
+      state.beams.push({
+        x1: tip.x,
+        y1: tip.y,
+        x2: end.x,
+        y2: end.y,
+        color: spell.color,
+        fade
+      });
+    } else {
+      const beam = state.beams[0];
+      beam.x1 = tip.x;
+      beam.y1 = tip.y;
+      beam.x2 = end.x;
+      beam.y2 = end.y;
+      beam.color = spell.color;
+      beam.fade = fade;
     }
+
+    spawnBeamParticles(spell, tip, release, fade, dt);
   }
 
   function updateParticles(dt) {
@@ -993,6 +762,15 @@
     effectCtx.lineTo(x, y + 30);
     effectCtx.stroke();
 
+    if (state.charging) {
+      const chargeAngle = -Math.PI / 2 + state.charge * Math.PI * 2;
+      effectCtx.strokeStyle = "rgba(230, 184, 76, 0.95)";
+      effectCtx.lineWidth = 5;
+      effectCtx.beginPath();
+      effectCtx.arc(x, y, 32, -Math.PI / 2, chargeAngle);
+      effectCtx.stroke();
+    }
+
     effectCtx.fillStyle = "#ffffff";
     effectCtx.beginPath();
     effectCtx.arc(x, y, 3, 0, Math.PI * 2);
@@ -1006,12 +784,16 @@
       return;
     }
 
+    const release = state.release;
+    const fade = release
+      ? Math.max(0, 1 - (performance.now() - release.startedAt) / release.duration)
+      : 1;
     const tip = getTipPoint();
     const extra = spell.kind === "patronus" ? 56 : 0;
     const radius = 72 + extra + Math.sin(performance.now() * 0.012) * 10;
     const gradient = effectCtx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, radius);
-    gradient.addColorStop(0, hexToRgba(spell.color, 0.34));
-    gradient.addColorStop(0.65, hexToRgba(spell.color, 0.1));
+    gradient.addColorStop(0, hexToRgba(spell.color, 0.34 * fade));
+    gradient.addColorStop(0.65, hexToRgba(spell.color, 0.1 * fade));
     gradient.addColorStop(1, hexToRgba(spell.color, 0));
 
     effectCtx.save();
@@ -1069,11 +851,13 @@
     effectCtx.globalCompositeOperation = "lighter";
 
     for (const beam of state.beams) {
+      const fade = beam.fade ?? 1;
       const gradient = effectCtx.createLinearGradient(beam.x1, beam.y1, beam.x2, beam.y2);
-      gradient.addColorStop(0, hexToRgba(beam.color, 0.12));
-      gradient.addColorStop(1, hexToRgba(beam.color, 0.92));
+      gradient.addColorStop(0, hexToRgba(beam.color, 0.12 * fade));
+      gradient.addColorStop(1, hexToRgba(beam.color, 0.92 * fade));
+      effectCtx.globalAlpha = fade;
       effectCtx.shadowColor = beam.color;
-      effectCtx.shadowBlur = 18;
+      effectCtx.shadowBlur = 18 + 18 * fade;
       effectCtx.strokeStyle = gradient;
       effectCtx.lineWidth = 10;
       effectCtx.beginPath();
@@ -1084,7 +868,7 @@
       effectCtx.shadowBlur = 24;
       effectCtx.fillStyle = beam.color;
       effectCtx.beginPath();
-      effectCtx.arc(beam.x2, beam.y2, 14, 0, Math.PI * 2);
+      effectCtx.arc(beam.x2, beam.y2, 14 * fade + 2, 0, Math.PI * 2);
       effectCtx.fill();
     }
 
@@ -1108,6 +892,7 @@
       updateDetection(now);
     }
 
+    updateGestureCharge(dt);
     updateActiveSpell(dt);
     updateParticles(dt);
     draw();

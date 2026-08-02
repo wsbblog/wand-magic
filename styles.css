@@ -167,6 +167,52 @@ button {
   transition: width 80ms linear;
 }
 
+.charge-meter {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  background: rgba(12, 15, 20, 0.84);
+  color: #f5f7fa;
+  font-size: 13px;
+}
+
+.charge-label {
+  min-width: 78px;
+  white-space: nowrap;
+}
+
+.charge-track {
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.charge-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #45c4b0, #e6b84c, #e0703f);
+  transition: width 80ms linear;
+}
+
+.charge-value {
+  min-width: 38px;
+  text-align: right;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 .wand-status {
   position: absolute;
   left: 12px;
