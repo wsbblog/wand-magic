@@ -43,6 +43,12 @@ Android Chrome：可以把 `wand-dev-ca.cer` 安装为 CA 证书；也可以使�
 
 如果手机无法连接，请检查 Windows 防火墙是否允许 Node.js 在局域网内访问 4173/4174 端口。
 
+## Vercel 部署
+
+这个项目也可以作为纯静态站点部署到 Vercel。Vercel 只会托管 `index.html`、`app.js`、`styles.css`，不会运行本地 `server.js`；HTTPS 由 Vercel 自动提供。
+
+在 Vercel 中导入该 GitHub 仓库即可。仓库已包含 `vercel.json`，部署后直接访问 Vercel 生成的 HTTPS 地址。
+
 ## 使用方式
 
 1. 点击“开启摄像头与麦克风”并允许权限。
